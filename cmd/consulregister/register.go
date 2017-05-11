@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
@@ -69,11 +68,12 @@ func getHealthChecks(container types.ContainerJSON) consul.AgentServiceChecks {
 	default:
 		return nil
 	}
+
 	return consul.AgentServiceChecks{check}
 }
 
 func getServiceTags(container types.ContainerJSON) []string {
-	return append([]string{"autoreg"}, strings.Split(container.Config.Labels[ServiceTagsKey], ",")...)
+	return strings.Split(container.Config.Labels[ServiceTagsKey], ",")
 }
 
 // Get the service host port.
@@ -82,11 +82,12 @@ func getServicePort(container types.ContainerJSON) string {
 
 	ports, ok := container.HostConfig.PortBindings[nat.Port(servicePortId)]
 	if !ok || len(ports) == 0 {
-		return ""
+		return servicePortId
 	}
 	return ports[0].HostPort
 }
 
+// Get a key from the docker labels.
 func getServiceName(container types.ContainerJSON) string {
 	for _, choice := range ServiceNameKeys {
 		if name, ok := container.Config.Labels[choice]; ok {
@@ -104,15 +105,15 @@ type registrator struct {
 	docker  *docker.Client
 }
 
-func (a *registrator) stop(container types.ContainerJSON) error {
+func (a *registrator) stop(id string, container types.ContainerJSON) error {
 	return a.docker.ContainerStop(a.ctx, container.ID, nil)
 }
 
-func (a *registrator) deregister(container types.ContainerJSON) error {
-	return a.agent.ServiceDeregister(container.ID)
+func (a *registrator) deregister(id string) error {
+	return a.agent.ServiceDeregister(id)
 }
 
-func (a *registrator) register(container types.ContainerJSON) error {
+func (a *registrator) register(id string, container types.ContainerJSON) error {
 	var port int
 	consulChecks := getHealthChecks(container)
 	servicePort := getServicePort(container)
@@ -120,47 +121,45 @@ func (a *registrator) register(container types.ContainerJSON) error {
 		port, _ = strconv.Atoi(servicePort)
 	}
 
-	return a.agent.ServiceRegister(&consul.AgentServiceRegistration{
-		ID:     container.ID,
+	service := &consul.AgentServiceRegistration{
+		ID:     id,
 		Name:   getServiceName(container),
 		Port:   port,
 		Checks: consulChecks,
 		Tags:   getServiceTags(container),
-	})
+	}
+
+	log.Printf("[DEBU] registrator: register %+v", service)
+	return a.agent.ServiceRegister(service)
 }
 
-func (a *registrator) consulIsRegistered(containerId string) (bool, error) {
+func (a *registrator) consulIsRegistered(id string) (bool, error) {
 	services, err := a.agent.Services()
 	if err != nil {
 		return false, err
 	}
 
 	for _, svc := range services {
-		if svc.ID == containerId {
+		if svc.ID == id {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func (a *registrator) consulIsRunning(containerId string) (bool, error) {
+func (a *registrator) consulIsRunning(id string) (bool, error) {
 	checks, err := a.agent.Checks()
 	if err != nil {
 		return false, err
 	}
 
 	for _, check := range checks {
-		if check.ServiceID == containerId && check.Status == "critical" {
+		if check.ServiceID == id && check.Status == "critical" {
 			return false, nil
 		}
 	}
 	// always default to healthy
 	return true, nil
-}
-
-func (a *registrator) isValidContainer(container types.ContainerJSON) bool {
-	servicePort := getServicePort(container)
-	return servicePort != ""
 }
 
 func (a *registrator) evaluate(containerId string) {
@@ -170,36 +169,38 @@ func (a *registrator) evaluate(containerId string) {
 		return
 	}
 
+	if getServiceName(container) == "" {
+		// No service name means we don't care
+		return
+	}
+
+	id := containerId[:12]
+
 	dockerRunning := container.State.Running
-	consulHealthy, err := a.consulIsRunning(containerId)
+	consulHealthy, err := a.consulIsRunning(id)
 	if err != nil {
 		log.Printf("[WARN] registrator: failed to get health -- %v", err)
 		return
 	}
 
-	consulRegistered, err := a.consulIsRegistered(containerId)
+	consulRegistered, err := a.consulIsRegistered(id)
 	if err != nil {
 		log.Printf("[WARN] registrator: failed to get consul status -- %v", err)
 		return
 	}
 
 	if dockerRunning && !consulRegistered {
-		log.Printf("[DEBU] registrator: container is running, registering in consul %s", containerId)
-		err := a.register(container)
+		log.Printf("[DEBU] registrator: container is running, registering in consul %s", id)
+		err := a.register(id, container)
 		if err != nil {
 			log.Printf("[ERRO] registrator: failed to registrator -- %v", err)
 		}
 		return
 	}
 
-	if dockerRunning && consulHealthy {
-		log.Printf("[DEBU] registrator: container is healthy %s", containerId)
-		return
-	}
-
-	if !dockerRunning && consulHealthy {
-		log.Printf("[DEBU] registrator: container is not running, removing from consul %s", containerId)
-		err := a.deregister(container)
+	if !dockerRunning && consulRegistered {
+		log.Printf("[DEBU] registrator: container is not running, removing from consul %s", id)
+		err := a.deregister(id)
 		if err != nil {
 			log.Printf("[ERRO] registrator: failed to deregistrator -- %v", err)
 		}
@@ -207,10 +208,14 @@ func (a *registrator) evaluate(containerId string) {
 	}
 
 	if dockerRunning && !consulHealthy {
-		log.Printf("[DEBU] registrator: container is not health, stopping container %s", containerId)
-		err := a.stop(container)
+		log.Printf("[DEBU] registrator: container is not health, stopping container %s", id)
+		err := a.stop(id, container)
 		if err != nil {
 			log.Printf("[ERRO] registrator: failed to stop -- %v", err)
+		}
+		err = a.deregister(id)
+		if err != nil {
+			log.Printf("[ERRO] registrator: failed to deregister -- %v", err)
 		}
 		return
 	}
@@ -235,7 +240,6 @@ func (a *registrator) watch() {
 	for {
 		select {
 		case msg := <-messages:
-			fmt.Printf("msg: %+v\n", msg)
 			if msg.Type != "container" {
 				continue
 			}
