@@ -1,11 +1,10 @@
 package main
 
 import (
-	"context"
 	"github.com/docker/docker/api/types"
-	docker "github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	consul "github.com/hashicorp/consul/api"
+	"golang.org/x/net/context"
 	"log"
 	"strconv"
 	"strings"
@@ -62,9 +61,9 @@ func getHealthChecks(container types.ContainerJSON) consul.AgentServiceChecks {
 	case "shell":
 		check.Shell = arg
 	case "http":
-		check.HTTP = strings.Replace(arg, "${service-port}", servicePort, 1)
+		check.HTTP = strings.Replace(arg, "${service.port}", servicePort, 1)
 	case "tcp":
-		check.TCP = strings.Replace(arg, "${service-port}", servicePort, 1)
+		check.TCP = strings.Replace(arg, "${service.port}", servicePort, 1)
 	default:
 		return nil
 	}
@@ -98,11 +97,9 @@ func getServiceName(container types.ContainerJSON) string {
 }
 
 type registrator struct {
-	ctx     context.Context
-	kv      *consul.KV
-	agent   *consul.Agent
-	catalog *consul.Catalog
-	docker  *docker.Client
+	ctx    context.Context
+	consul ConsulClient
+	docker DockerClient
 }
 
 func (a *registrator) stop(id string, container types.ContainerJSON) error {
@@ -110,7 +107,7 @@ func (a *registrator) stop(id string, container types.ContainerJSON) error {
 }
 
 func (a *registrator) deregister(id string) error {
-	return a.agent.ServiceDeregister(id)
+	return a.consul.ServiceDeregister(id)
 }
 
 func (a *registrator) register(id string, container types.ContainerJSON) error {
@@ -130,36 +127,7 @@ func (a *registrator) register(id string, container types.ContainerJSON) error {
 	}
 
 	log.Printf("[DEBU] registrator: register %+v", service)
-	return a.agent.ServiceRegister(service)
-}
-
-func (a *registrator) consulIsRegistered(id string) (bool, error) {
-	services, err := a.agent.Services()
-	if err != nil {
-		return false, err
-	}
-
-	for _, svc := range services {
-		if svc.ID == id {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func (a *registrator) consulIsRunning(id string) (bool, error) {
-	checks, err := a.agent.Checks()
-	if err != nil {
-		return false, err
-	}
-
-	for _, check := range checks {
-		if check.ServiceID == id && check.Status == "critical" {
-			return false, nil
-		}
-	}
-	// always default to healthy
-	return true, nil
+	return a.consul.ServiceRegister(service)
 }
 
 func (a *registrator) evaluate(containerId string) {
@@ -177,13 +145,13 @@ func (a *registrator) evaluate(containerId string) {
 	id := containerId[:12]
 
 	dockerRunning := container.State.Running
-	consulHealthy, err := a.consulIsRunning(id)
+	consulHealthy, err := a.consul.ServiceIsRunning(id)
 	if err != nil {
 		log.Printf("[WARN] registrator: failed to get health -- %v", err)
 		return
 	}
 
-	consulRegistered, err := a.consulIsRegistered(id)
+	consulRegistered, err := a.consul.ServiceIsRegistered(id)
 	if err != nil {
 		log.Printf("[WARN] registrator: failed to get consul status -- %v", err)
 		return
@@ -208,7 +176,7 @@ func (a *registrator) evaluate(containerId string) {
 	}
 
 	if dockerRunning && !consulHealthy {
-		log.Printf("[DEBU] registrator: container is not health, stopping container %s", id)
+		log.Printf("[DEBU] registrator: container is not healthy, stopping container and deregistering %s", id)
 		err := a.stop(id, container)
 		if err != nil {
 			log.Printf("[ERRO] registrator: failed to stop -- %v", err)
@@ -222,19 +190,6 @@ func (a *registrator) evaluate(containerId string) {
 }
 
 func (a *registrator) run() {
-	for {
-		a.watch()
-
-		// in case of watch errors, restart
-		select {
-		case <-a.ctx.Done():
-			return
-		case <-time.After(3 * time.Second):
-		}
-	}
-}
-
-func (a *registrator) watch() {
 	messages, errs := a.docker.Events(a.ctx, types.EventsOptions{})
 
 	for {
@@ -251,7 +206,7 @@ func (a *registrator) watch() {
 			}
 		case err := <-errs:
 			log.Printf("[WARN] registrator: recieved error from docker events -- %v", err)
-			return
+			messages, errs = a.docker.Events(a.ctx, types.EventsOptions{})
 		case <-time.After(5 * time.Second):
 			containers, err := a.docker.ContainerList(a.ctx, types.ContainerListOptions{})
 			if err != nil {
@@ -262,6 +217,8 @@ func (a *registrator) watch() {
 			for _, container := range containers {
 				a.evaluate(container.ID)
 			}
+		case <-a.ctx.Done():
+			return
 		}
 	}
 }

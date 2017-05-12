@@ -1,0 +1,5 @@
+#!/bin/bash
+
+for pkg in $( ls cmd/ ); do
+    go test -v github.com/coldog/tool-ecs/cmd/$pkg
+done

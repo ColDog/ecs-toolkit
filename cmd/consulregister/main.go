@@ -30,6 +30,7 @@ func main() {
 	for {
 		var err error
 		dockerClient, err = docker.NewEnvClient()
+		_, err = dockerClient.Ping(context.Background())
 		if err == nil {
 			log.Println("[INFO] main: connected to docker")
 			break
@@ -43,8 +44,7 @@ func main() {
 
 	reg := &registrator{
 		docker: dockerClient,
-		kv:     consulClient.KV(),
-		agent:  consulClient.Agent(),
+		consul: NewConsulClient(consulClient),
 		ctx:    ctx,
 	}
 
