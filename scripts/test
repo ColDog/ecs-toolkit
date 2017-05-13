@@ -1,5 +1,9 @@
 #!/bin/bash
 
-for pkg in $( ls cmd/ ); do
-    go test -v github.com/coldog/tool-ecs/cmd/$pkg
-done
+if [ $1 ]; then
+    go test -v github.com/coldog/tool-ecs/cmd/$1
+else
+    for pkg in $( ls cmd/ ); do
+        go test -v github.com/coldog/tool-ecs/cmd/$pkg
+    done
+fi
