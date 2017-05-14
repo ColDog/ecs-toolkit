@@ -1,0 +1,10 @@
+{
+  "type": "CronJob",
+  "id": "hello-world-2",
+  "spec": {
+    "schedule": "0 * * * *",
+    "taskDefinitionId": "hello-world:1",
+    "cluster": "default",
+    "replicas": 10
+  }
+}

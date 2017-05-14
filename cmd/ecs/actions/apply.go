@@ -8,38 +8,45 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/coldog/tool-ecs/internal/kv"
 	"github.com/pkg/errors"
+	"io"
 	"os"
+	"time"
 )
 
 type Spec struct {
-	Type string          `json:"type"`
-	ID   string          `json:"id"`
-	Spec json.RawMessage `json:"spec"`
+	Type    string          `json:"type"`
+	ID      string          `json:"id"`
+	Cluster string          `json:"cluster"`
+	Spec    json.RawMessage `json:"spec"`
 }
 
 type Apply struct {
 	flag   *flag.FlagSet
-	file   string
-	region string
+	File   string
+	Region string
 	ecs    *ecs.ECS
 }
 
 func (cmd *Apply) ShortDescription() string { return "Apply a resource" }
+func (cmd *Apply) PrintUsage()              { cmd.flag.PrintDefaults() }
 
 func (cmd *Apply) ParseArgs(args []string) {
 	cmd.flag = flag.NewFlagSet("Apply", flag.ExitOnError)
-	cmd.flag.StringVar(&cmd.region, "region", "us-west-2", "AWS Region")
+	cmd.flag.StringVar(&cmd.Region, "region", "us-west-2", "AWS Region")
+	cmd.flag.StringVar(&cmd.File, "f", "", "File to apply")
 	cmd.flag.Parse(args)
-	cmd.file = cmd.flag.Arg(0)
 }
 
-func (cmd *Apply) Run() error {
-	f, err := os.OpenFile(cmd.file, os.O_RDONLY, 0600)
+func (cmd *Apply) Run(w io.Writer) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	f, err := os.OpenFile(cmd.File, os.O_RDONLY, 0600)
 	if err != nil {
 		return errors.Wrap(err, "Could not open file")
 	}
 
-	sess, err := getSession(cmd.region)
+	sess, err := getSession(cmd.Region)
 	if err != nil {
 		return errors.Wrap(err, "Could not open aws session")
 	}
@@ -57,9 +64,6 @@ func (cmd *Apply) Run() error {
 	}
 
 	cmd.ecs = ecsClient
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	switch spec.Type {
 	// Dynamo resources:
@@ -89,6 +93,7 @@ func (cmd *Apply) handleTaskDefinition(ctx context.Context, spec *Spec) error {
 func (cmd *Apply) handleService(ctx context.Context, spec *Spec) error {
 	out, err := cmd.ecs.DescribeServices(&ecs.DescribeServicesInput{
 		Services: []*string{aws.String(spec.ID)},
+		Cluster:  aws.String(spec.Cluster),
 	})
 	if err != nil {
 		return err
