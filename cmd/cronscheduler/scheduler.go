@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/coldog/tool-ecs/internal/kv"
 	"github.com/gorhill/cronexpr"
 	"github.com/pkg/errors"
 	"log"
@@ -11,16 +13,22 @@ import (
 
 var GetTime = func() time.Time { return time.Now() }
 
-var KeyPrefix = "cronjobs/"
+const CronJobType = "CronJob"
 
 // A cron job represents a runnable cron job
 type CronJob struct {
 	// The last run executed by this job, used to find the next run.
 	LastRun time.Time
 
-	// Task definition ID to run.
+	// Task definition ID to run and the cluster that it should run in.
 	TaskDefinitionID string
 	Cluster          string
+
+	// The number of tasks to run.
+	Replicas int
+
+	// ECS Container overrides to apply.
+	Overrides []*ecs.ContainerOverride
 
 	// A Cron string.
 	Schedule string
@@ -48,7 +56,7 @@ func (job *CronJob) ShouldRun() (bool, error) {
 
 type scheduler struct {
 	ctx context.Context
-	kv  ConsulKVClient
+	kv  kv.DB
 	ecs ECSClient
 }
 
@@ -63,18 +71,21 @@ func (scheduler *scheduler) runJob(key string, job *CronJob) error {
 
 	log.Printf("[INFO] scheduler: running task %s/%s", job.Cluster, job.TaskDefinitionID)
 
-	err = scheduler.ecs.RunTask(job.Cluster, job.TaskDefinitionID)
+	err = scheduler.ecs.RunTask(scheduler.ctx, &ecs.RunTaskInput{
+		Cluster:        aws.String(job.Cluster),
+		TaskDefinition: aws.String(job.TaskDefinitionID),
+		StartedBy:      aws.String("CronScheduler"),
+		Count:          aws.Int64(int64(job.Replicas)),
+		Overrides: &ecs.TaskOverride{
+			ContainerOverrides: job.Overrides,
+		},
+	})
 	if err != nil {
 		return errors.Wrap(err, "failed to run job")
 	}
 
 	job.LastRun = GetTime()
-	data, err := json.Marshal(job)
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal job")
-	}
-
-	err = scheduler.kv.Update(KeyPrefix+key, data)
+	err = scheduler.kv.Put(scheduler.ctx, CronJobType, key, job)
 	if err != nil {
 		return errors.Wrap(err, "failed to update timestamp")
 	}
@@ -83,17 +94,17 @@ func (scheduler *scheduler) runJob(key string, job *CronJob) error {
 }
 
 func (scheduler *scheduler) evaluate() {
-	values, err := scheduler.kv.List(KeyPrefix)
+	keys, err := scheduler.kv.Keys(scheduler.ctx, CronJobType)
 	if err != nil {
 		log.Printf("[WARN] scheduler: failed to read keys -- %v", err)
 		return
 	}
 
-	for key, val := range values {
+	for _, key := range keys {
 		job := &CronJob{}
-		err := json.Unmarshal(val, job)
+		err := scheduler.kv.Get(scheduler.ctx, CronJobType, key, job)
 		if err != nil {
-			log.Printf("[WARN] scheduler: failed to read cron job at %s -- %v", key, err)
+			log.Printf("[WARN] scheduler: failed to run job %s -- %v", key, err)
 			continue
 		}
 

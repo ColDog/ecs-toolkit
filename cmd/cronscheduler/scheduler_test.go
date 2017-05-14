@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/coldog/tool-ecs/internal/kv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"testing"
@@ -20,19 +23,8 @@ type MockECS struct {
 }
 
 func (m *MockECS) Open(ctx context.Context) error { return nil }
-func (m *MockECS) RunTask(cluster, taskDefinition string) error {
-	return m.Called(cluster, taskDefinition).Error(0)
-}
-
-type MockConsul struct {
-	mock.Mock
-}
-
-func (m *MockConsul) Open(ctx context.Context) error        { return nil }
-func (m *MockConsul) Update(key string, value []byte) error { return m.Called(key).Error(0) }
-func (m *MockConsul) List(prefix string) (map[string][]byte, error) {
-	args := m.Called(prefix)
-	return args.Get(0).(map[string][]byte), args.Error(1)
+func (m *MockECS) RunTask(ctx context.Context, input *ecs.RunTaskInput) error {
+	return m.Called(input).Error(0)
 }
 
 func TestCronJob_Next(t *testing.T) {
@@ -73,55 +65,50 @@ func TestCronJob_ShouldNotRun(t *testing.T) {
 
 func TestScheduler_Start(t *testing.T) {
 	mockEcs := &MockECS{}
-	mockConsul := &MockConsul{}
 	ctx := context.Background()
 	sched := &scheduler{
 		ctx: ctx,
 		ecs: mockEcs,
-		kv:  mockConsul,
+		kv:  kv.NewLocalDB(),
 	}
-	jobs := map[string][]byte{
-		"job1": []byte(`{
-		    "LastRun": "2017-05-04T00:00:00Z",
-		    "TaskDefinitionID": "testTask",
-		    "Cluster": "testCluster",
-		    "Schedule": "0 * * * *"
-		}`),
+	sched.kv.Put(context.Background(), CronJobType, "job1", &CronJob{
+		LastRun:          time.Date(2017, 05, 04, 0, 0, 0, 0, time.UTC),
+		TaskDefinitionID: "testTask",
+		Cluster:          "testCluster",
+		Schedule:         "0 * * * *",
+		Replicas:         5,
+	})
+	input := &ecs.RunTaskInput{
+		Count:          aws.Int64(5),
+		StartedBy:      aws.String("CronScheduler"),
+		TaskDefinition: aws.String("testTask"),
+		Cluster:        aws.String("testCluster"),
+		Overrides:      &ecs.TaskOverride{},
 	}
-	mockConsul.On("List", "cronjobs/").Return(jobs, nil)
-	mockConsul.On("Update", "cronjobs/job1").Return(nil)
-	mockEcs.On("RunTask", "testCluster", "testTask").Return(nil)
+	mockEcs.On("RunTask", input).Return(nil)
 
 	sched.evaluate()
 
-	mockConsul.AssertCalled(t, "List", "cronjobs/")
-	mockConsul.AssertCalled(t, "Update", "cronjobs/job1")
-	mockEcs.AssertCalled(t, "RunTask", "testCluster", "testTask")
+	mockEcs.AssertCalled(t, "RunTask", input)
 }
 
 func TestScheduler_DoNotStart(t *testing.T) {
 	mockEcs := &MockECS{}
-	mockConsul := &MockConsul{}
 	ctx := context.Background()
 	sched := &scheduler{
 		ctx: ctx,
 		ecs: mockEcs,
-		kv:  mockConsul,
+		kv:  kv.NewLocalDB(),
 	}
-	jobs := map[string][]byte{
-		// LastRun = current time
-		"job1": []byte(`{
-		    "LastRun": "2017-05-05T00:00:00Z",
-		    "TaskDefinitionID": "testTask",
-		    "Cluster": "testCluster",
-		    "Schedule": "0 * * * *"
-		}`),
-	}
-	mockConsul.On("List", "cronjobs/").Return(jobs, nil)
+	sched.kv.Put(context.Background(), CronJobType, "job1", &CronJob{
+		LastRun:          GetTime(),
+		TaskDefinitionID: "testTask",
+		Cluster:          "testCluster",
+		Schedule:         "0 * * * *",
+	})
 	mockEcs.On("RunTask", "testCluster", "testTask").Return(nil)
 
 	sched.evaluate()
 
-	mockConsul.AssertCalled(t, "List", "cronjobs/")
-	mockEcs.AssertNotCalled(t, "RunTask", "testCluster", "testTask")
+	mockEcs.AssertNotCalled(t, "RunTask")
 }

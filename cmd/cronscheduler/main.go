@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/coldog/tool-ecs/internal/kv"
 	"log"
 	"os"
 	"os/signal"
@@ -14,12 +17,22 @@ func main() {
 	flag.StringVar(&region, "region", "us-west-2", "Aws Region")
 	flag.Parse()
 
+	sess, err := session.NewSession(&aws.Config{Region: aws.String(region)})
+	if err != nil {
+		log.Fatalf("[FATA] main: could not connect to aws -- %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
+
+	db, err := kv.NewDynamoDB(sess)
+	if err != nil {
+		log.Fatalf("[FATA] main: could not connect to dynamo -- %v", err)
+	}
 
 	sched := &scheduler{
 		ctx: ctx,
-		kv:  NewConsulKVClient(),
-		ecs: NewECSClient(),
+		kv:  db,
+		ecs: NewECSClient(sess),
 	}
 
 	sigs := make(chan os.Signal)
@@ -31,16 +44,6 @@ func main() {
 		cancel()
 		os.Exit(0)
 	}()
-
-	err := sched.kv.Open(ctx)
-	if err != nil {
-		log.Fatalf("[FATA] main: failed to open kv -- %v", err)
-	}
-
-	err = sched.ecs.Open(ctx)
-	if err != nil {
-		log.Fatalf("[FATA] main: failed to open ecs -- %v", err)
-	}
 
 	sched.run()
 }

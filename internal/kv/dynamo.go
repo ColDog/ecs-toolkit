@@ -1,12 +1,22 @@
 package kv
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 )
 
 const table = "sked_objects"
+
+func NewDynamoDB(sess *session.Session) (DB, error) {
+	db := &DynamoDB{
+		Client: dynamodb.New(sess),
+	}
+	err := db.Open()
+	return db, err
+}
 
 type DynamoDB struct {
 	Client *dynamodb.DynamoDB
@@ -38,7 +48,7 @@ func (db *DynamoDB) Open() (err error) {
 	return err
 }
 
-func (db *DynamoDB) Put(class, key string, i interface{}) error {
+func (db *DynamoDB) Put(ctx context.Context, class, key string, i interface{}) error {
 	data, err := json.Marshal(i)
 	if err != nil {
 		return err
@@ -51,11 +61,11 @@ func (db *DynamoDB) Put(class, key string, i interface{}) error {
 			"class": {S: aws.String(class)},
 		},
 	}
-	_, err = db.Client.PutItem(put)
+	_, err = db.Client.PutItemWithContext(ctx, put)
 	return err
 }
 
-func (db *DynamoDB) Keys(class string) ([]string, error) {
+func (db *DynamoDB) Keys(ctx context.Context, class string) ([]string, error) {
 	query := &dynamodb.QueryInput{
 		TableName:              aws.String(table),
 		KeyConditionExpression: aws.String("class = :class"),
@@ -64,7 +74,7 @@ func (db *DynamoDB) Keys(class string) ([]string, error) {
 		},
 		ProjectionExpression: aws.String("class"),
 	}
-	res, err := db.Client.Query(query)
+	res, err := db.Client.QueryWithContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +85,7 @@ func (db *DynamoDB) Keys(class string) ([]string, error) {
 	return keys, nil
 }
 
-func (db *DynamoDB) Get(class, key string, i interface{}) error {
+func (db *DynamoDB) Get(ctx context.Context, class, key string, i interface{}) error {
 	get := &dynamodb.GetItemInput{
 		ConsistentRead: aws.Bool(true),
 		TableName:      aws.String(table),
@@ -84,7 +94,7 @@ func (db *DynamoDB) Get(class, key string, i interface{}) error {
 			"class": {S: aws.String(class)},
 		},
 	}
-	res, err := db.Client.GetItem(get)
+	res, err := db.Client.GetItemWithContext(ctx, get)
 	data := res.Item["body"].B
 	err = json.Unmarshal(data, i)
 	if err != nil {
@@ -93,14 +103,14 @@ func (db *DynamoDB) Get(class, key string, i interface{}) error {
 	return nil
 }
 
-func (db *DynamoDB) Del(class, key string) error {
+func (db *DynamoDB) Del(ctx context.Context, class, key string) error {
 	get := &dynamodb.DeleteItemInput{
-		TableName: aws.String("sked_items"),
+		TableName: aws.String(table),
 		Key: map[string]*dynamodb.AttributeValue{
 			"key":   {S: aws.String(key)},
 			"class": {S: aws.String(class)},
 		},
 	}
-	_, err := db.Client.DeleteItem(get)
+	_, err := db.Client.DeleteItemWithContext(ctx, get)
 	return err
 }
