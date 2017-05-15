@@ -119,6 +119,10 @@
 			"revisionTime": "2017-04-29T04:08:57Z"
 		},
 		{
+			"path": "github.com/aws/aws-sdk-go/ec2metadata",
+			"revision": ""
+		},
+		{
 			"checksumSHA1": "wk7EyvDaHwb5qqoOP/4d3cV0708=",
 			"path": "github.com/aws/aws-sdk-go/private/protocol",
 			"revision": "3b2e243094efa6e54bf372c6aa389f3b1868c719",
