@@ -15,6 +15,14 @@
 			"revisionTime": "2017-03-17T14:32:14Z"
 		},
 		{
+			"path": "github.com/aws-sdk-go/service/elbv2",
+			"revision": ""
+		},
+		{
+			"path": "github.com/aws-sdk-go/services/elbv2",
+			"revision": ""
+		},
+		{
 			"checksumSHA1": "dqEpGTHm+i8lGaRZotHCKQVRH5U=",
 			"path": "github.com/aws/aws-sdk-go/aws",
 			"revision": "3b2e243094efa6e54bf372c6aa389f3b1868c719",
@@ -163,6 +171,12 @@
 			"path": "github.com/aws/aws-sdk-go/service/ecs",
 			"revision": "3b2e243094efa6e54bf372c6aa389f3b1868c719",
 			"revisionTime": "2017-04-29T04:08:57Z"
+		},
+		{
+			"checksumSHA1": "03QX7X3DzyHiZ1bAB2edifrCJ6Y=",
+			"path": "github.com/aws/aws-sdk-go/service/elbv2",
+			"revision": "0bd07941d03f4b46f9093e5b427893e6fdde940c",
+			"revisionTime": "2017-05-12T19:40:28Z"
 		},
 		{
 			"checksumSHA1": "SdsHiTUR9eRarThv/i7y6/rVyF4=",
@@ -365,8 +379,8 @@
 		{
 			"checksumSHA1": "iGAHizBUN43QlmYmn1bPLlNN9pw=",
 			"path": "github.com/hashicorp/consul/api",
-			"revision": "731ed95b84f2a5ea9e3a86bb4ac4c3f8faf8f606",
-			"revisionTime": "2017-04-29T01:49:38Z"
+			"revision": "4edd1dcba296a536758eb032bc8734a724b6a368",
+			"revisionTime": "2017-05-12T19:56:18Z"
 		},
 		{
 			"checksumSHA1": "b8F628srIitj5p7Y130xc9k0QWs=",
