@@ -14,7 +14,10 @@ resource "aws_launch_configuration" "main" {
   user_data            = "#!/bin/bash\necho ECS_CLUSTER=${var.cluster_name} > /etc/ecs/ecs.config"
   key_name             = "${var.cluster_name}_key"
   iam_instance_profile = "${aws_iam_instance_profile.ecs_instance.id}"
-  security_groups      = ["${aws_security_group.main_instance.id}"]
+  security_groups      = [
+    "${aws_security_group.main_internal.id}",
+    "${aws_security_group.main_ssh.id}",
+  ]
 
   lifecycle {
     create_before_destroy = true

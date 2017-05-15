@@ -43,9 +43,9 @@ resource "aws_default_route_table" "main" {
   }
 }
 
-resource "aws_security_group" "main_lb" {
-  name        = "ecs_lb"
-  description = "ECS Load Balancer security group"
+resource "aws_security_group" "main_external" {
+  name        = "external"
+  description = "External security group"
   vpc_id      = "${aws_vpc.main.id}"
 
   ingress {
@@ -63,9 +63,9 @@ resource "aws_security_group" "main_lb" {
   }
 }
 
-resource "aws_security_group" "main_instance" {
-  name        = "ecs_instance"
-  description = "ECS instance security group"
+resource "aws_security_group" "main_internal" {
+  name        = "internal"
+  description = "Internal security group"
   vpc_id      = "${aws_vpc.main.id}"
 
   ingress {
@@ -76,23 +76,29 @@ resource "aws_security_group" "main_instance" {
   }
 
   ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
     from_port       = 0
     to_port         = 65535
     protocol        = "tcp"
-    security_groups = ["${aws_security_group.main_lb.id}"]
+    security_groups = ["${aws_security_group.main_external.id}"]
   }
 
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_security_group" "main_ssh" {
+  name        = "ssh"
+  description = "ECS instance ssh access"
+  vpc_id      = "${aws_vpc.main.id}"
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 }

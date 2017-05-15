@@ -1,6 +1,6 @@
 resource "aws_route53_zone" "main" {
   name   = "${var.cluster_name}.local"
-  vpc_id = "${aws_vpc.ecs.id}"
+  vpc_id = "${aws_vpc.main.id}"
 }
 
 resource "aws_route53_record" "internal_lb" {
@@ -17,8 +17,16 @@ resource "aws_route53_record" "internal_lb" {
 
 resource "aws_alb" "internal" {
   name      = "internal"
-  subnets   = ["${aws_subnet.ecs.*.id}"]
+  subnets   = ["${aws_subnet.main.*.id}"]
   internal  = true
 
-  security_groups = ["${aws_security_group.ecs_lb.id}"]
+  security_groups = ["${aws_security_group.main_internal.id}"]
+}
+
+resource "aws_alb" "external" {
+  name      = "external"
+  subnets   = ["${aws_subnet.main.*.id}"]
+  internal  = false
+
+  security_groups = ["${aws_security_group.main_external.id}"]
 }
