@@ -1,0 +1,12 @@
+type: Service
+id: consul_agent
+spec:
+  serviceName: consul_agent
+  taskDefinition: consul_agent
+  cluster: default
+  deploymentConfiguration:
+    maximumPercent: 100
+    minimumHealthyPercent: 0
+  desiredCount: 1
+  placementConstraints:
+  - type: distinctInstance

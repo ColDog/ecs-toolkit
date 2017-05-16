@@ -1,0 +1,31 @@
+type: TaskDefinition
+id: consul_agent
+spec:
+  family: consul_agent
+  networkMode: host
+  containerDefinitions:
+  - name: consul
+    image: consul
+    memory: 300
+    memoryReservation: 200
+    cpu: 20
+    essential: true
+    portMappings:
+    - containerPort: 8500
+      protocol: tcp
+    - containerPort: 8600
+      protocol: tcp
+    command:
+    - agent
+    environment:
+    mountPoints:
+    volumesFrom:
+    hostname:
+    user:
+    workingDirectory:
+    extraHosts:
+    logConfiguration:
+    ulimits:
+    dockerLabels:
+  volumes:
+  placementConstraints:

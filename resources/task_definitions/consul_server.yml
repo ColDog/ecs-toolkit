@@ -1,0 +1,42 @@
+type: TaskDefinition
+id: consul_server
+spec:
+  family: consul_server
+  networkMode: host
+  containerDefinitions:
+  - name: consul
+    image: consul
+    memory: 300
+    memoryReservation: 200
+    cpu: 20
+    essential: true
+    portMappings:
+    - containerPort: 8500
+      protocol: tcp
+    - containerPort: 8600
+      protocol: tcp
+    command:
+    - agent
+    - "-ui"
+    - "-server"
+    - "-data-dir=/consul/data/"
+    - "-retry-join-ec2-tag-key=cluster"
+    - "-retry-join-ec2-tag-value=default"
+    environment:
+    mountPoints:
+    - sourceVolume: consul
+      containerPath: "/consul/data"
+      readOnly: false
+    volumesFrom:
+    hostname:
+    user:
+    workingDirectory:
+    extraHosts:
+    logConfiguration:
+    ulimits:
+    dockerLabels:
+  volumes:
+  - name: consul
+    host:
+      sourcePath: "/var/lib/consul"
+  placementConstraints:

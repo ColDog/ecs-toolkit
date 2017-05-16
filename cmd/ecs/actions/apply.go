@@ -2,7 +2,7 @@ package actions
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/ghodss/yaml"
 	"flag"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ecs"
@@ -11,6 +11,8 @@ import (
 	"io"
 	"os"
 	"time"
+	"encoding/json"
+	"io/ioutil"
 )
 
 type Spec struct {
@@ -52,7 +54,11 @@ func (cmd *Apply) Run(w io.Writer) error {
 	}
 
 	spec := &Spec{}
-	err = json.NewDecoder(f).Decode(spec)
+	data, err := ioutil.ReadAll(f)
+	if err != nil {
+		return errors.Wrap(err, "Could not read file")
+	}
+	err = yaml.Unmarshal(data, spec)
 	if err != nil {
 		return errors.Wrap(err, "Could not decode file")
 	}
